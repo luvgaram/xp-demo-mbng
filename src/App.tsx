@@ -312,7 +312,7 @@ export default function App() {
           {/* Background Image */}
           <div
             className="absolute inset-0 bg-cover bg-center transition-transform duration-700"
-            style={{ backgroundImage: `url('./mabinogi_bg.png')` }}
+            style={{ backgroundImage: `url('/mabinogi_bg.png')` }}
           >
             {/* Overlay for better readability */}
             <div className="absolute inset-0 bg-black/5"></div>
