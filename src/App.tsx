@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, Home, Youtube, MessageCircle, Share2, X, Play, Monitor, Apple, PlayCircle, Star } from 'lucide-react';
 import { motion } from 'motion/react';
+import mabinogiBg from '/public/mabinogi_bg.png';
 
 // ---------------------------------------------------------------
 // window.AF_SMART_SCRIPT 타입 선언
@@ -312,7 +313,7 @@ export default function App() {
           {/* Background Image */}
           <div
             className="absolute inset-0 bg-cover bg-center transition-transform duration-700"
-            style={{ backgroundImage: `url('/mabinogi_bg.png')` }}
+            style={{ backgroundImage: `url(${mabinogiBg})` }}
           >
             {/* Overlay for better readability */}
             <div className="absolute inset-0 bg-black/5"></div>
