@@ -3,17 +3,173 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Menu, Home, Youtube, MessageCircle, Share2, X, Play, Monitor, Apple, PlayCircle, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 
+// ---------------------------------------------------------------
+// window.AF_SMART_SCRIPT 타입 선언
+// CDN(index.html)에서 로드된 Smart Script 라이브러리를 TypeScript에서 사용하기 위함
+// ---------------------------------------------------------------
+declare global {
+  interface Window {
+    AF_SMART_SCRIPT: {
+      generateOneLinkURL: (params: {
+        oneLinkURL: string;
+        afParameters: Record<string, unknown>;
+      }) => { clickURL: string } | null;
+      generateDirectClickURL: (params: {
+        afParameters: Record<string, unknown>;
+        platform: string;
+        app_id: string;
+        redirectURL: string;
+      }) => { clickURL: string } | null;
+      fireImpressionsLink: () => void;
+      version: string;
+    };
+  }
+}
+
+// ---------------------------------------------------------------
+// Smart Script 설정값
+// ---------------------------------------------------------------
+const ONE_LINK_URL = 'https://nx-mbng-demo.onelink.me/JawM';
+
+const PLATFORMS = {
+  ios: {
+    platformName: 'ios',
+    appid: 'id1111742921',
+    redirectURL: 'https://apps.apple.com/kr/app/id1441742921',
+  },
+  android: {
+    platformName: 'android',
+    appid: 'com.xptest.mbng',
+    redirectURL: 'https://play.google.com/store/apps/details?id=com.nexon.devcat.mm',
+  },
+  galaxy: {
+    platformName: 'android', // Galaxy Store도 android platformName 사용
+    appid: 'com.xptest.mbng.galaxy',
+    redirectURL:
+      'https://apps.samsung.com/appquery/appDetail.as?appId=com.nexon.devcat.mmgalaxy',
+  },
+  nativepc: {
+    platformName: 'nativepc',
+    appid: '11117429211111',
+    redirectURL: 'https://mabinogimobile.nexon.com/Support/DownLoad',
+  },
+} as const;
+
+type PlatformKey = keyof typeof PLATFORMS;
+
+// CTA 버튼 라벨 정의
+const CTA_LABELS: Record<PlatformKey, string> = {
+  ios:      'App Store',
+  android:  'Google Play',
+  galaxy:   'Galaxy Store',
+  nativepc: 'PC',
+};
+
 export default function App() {
   const [activeMenu, setActiveMenu] = useState('1주년 페스티벌');
+  const [ctaLinks, setCtaLinks] = useState<Partial<Record<PlatformKey, string>>>({});
 
-  const handleDownload = (platform: string) => {
-    alert(`${platform} 다운로드 페이지로 이동합니다.`);
-    // 실제 구현 시에는 window.open(url) 등을 사용
-  };
+  // Impression 패널
+  const [impressionURL, setImpressionURL] = useState<string | null>(null);
+  const [showImpression, setShowImpression] = useState(false);
+
+  // CTA 호버 패널
+  const [hoveredCta, setHoveredCta] = useState<{ label: string; url: string } | null>(null);
+
+  useEffect(() => {
+    // window.AF_SMART_SCRIPT가 로드되었는지 확인
+    if (!window.AF_SMART_SCRIPT) {
+      console.error('[SmartScript] window.AF_SMART_SCRIPT is not available. index.html의 CDN 스크립트 로드를 확인하세요.');
+      return;
+    }
+
+    // ---------------------------------------------------------------
+    // Attribution 파라미터 정의
+    // 인입 URL의 UTM 파라미터를 읽거나, 없으면 defaultValue 사용
+    // ---------------------------------------------------------------
+    const afParameters: Record<string, unknown> = {
+      mediaSource:      { keys: ['utm_source'],                        defaultValue: 'game_media_source' },
+      campaign:         { keys: ['utm_campaign', 'campaign_name'],     defaultValue: 'game_landing_page' },
+      channel:          { keys: ['inchnl'] },
+      ad:               { keys: ['utm_content', 'ad_name'],            defaultValue: 'game_ad_name' },
+      adSet:            { keys: ['utm_term', 'adset_name'],             defaultValue: 'game_adset_name' },
+      afSub2:           { keys: ['fbclid'] },
+      googleClickIdKey: 'af_sub4',
+      afCustom: [
+        // Cross-platform attribution에 필수. Impression 링크에만 포함됨
+        { paramKey: 'af_xplatform', keys: [], defaultValue: 'true' },
+        { paramKey: 'gclid',  keys: ['gclid'] },
+        { paramKey: 'fbclid', keys: ['fbclid'] },
+      ],
+    };
+
+    // ---------------------------------------------------------------
+    // Step A: Impression 발화 (페이지 로드 시 자동 실행)
+    // ---------------------------------------------------------------
+    const olResult = window.AF_SMART_SCRIPT.generateOneLinkURL({
+      oneLinkURL: ONE_LINK_URL,
+      afParameters,
+    });
+
+    if (olResult) {
+      // fireImpressionsLink() 내부와 동일한 로직으로 실제 impression URL 생성
+      // Smart Script 내부: new URL(clickURL) → hostname을 impressions.onelink.me로 교체
+      try {
+        const impressionUrlObj = new URL(olResult.clickURL);
+        impressionUrlObj.hostname = 'impressions.onelink.me';
+        setImpressionURL(impressionUrlObj.href);
+      } catch {
+        setImpressionURL(olResult.clickURL);
+      }
+      setShowImpression(true);
+      // 1000ms setTimeout은 공식 샘플의 임시 버그 픽스
+      setTimeout(() => {
+        window.AF_SMART_SCRIPT.fireImpressionsLink();
+        console.log('[SmartScript] Impression fired');
+      }, 1000);
+    } else {
+      console.warn('[SmartScript] generateOneLinkURL returned null. Impression이 발화되지 않았습니다.');
+    }
+
+    // ---------------------------------------------------------------
+    // Step B: af_xplatform 제거
+    // Direct Click URL에는 af_xplatform이 불필요하며 포함 시 혼동 유발
+    // ---------------------------------------------------------------
+    const customParams = afParameters.afCustom as Array<{ paramKey: string }>;
+    const xplatformIndex = customParams.findIndex((item) => item.paramKey === 'af_xplatform');
+    if (xplatformIndex !== -1) {
+      customParams.splice(xplatformIndex, 1);
+    }
+
+    // ---------------------------------------------------------------
+    // Step C: 각 플랫폼별 Direct Click URL 생성 및 state 저장
+    // ---------------------------------------------------------------
+    const links: Partial<Record<PlatformKey, string>> = {};
+
+    (Object.keys(PLATFORMS) as PlatformKey[]).forEach((key) => {
+      const p = PLATFORMS[key];
+      const result = window.AF_SMART_SCRIPT.generateDirectClickURL({
+        afParameters,
+        platform: p.platformName,
+        app_id:   p.appid,
+        redirectURL: p.redirectURL,
+      });
+
+      if (result) {
+        links[key] = result.clickURL;
+        console.log(`[SmartScript] ${key} link:`, result.clickURL);
+      } else {
+        console.warn(`[SmartScript] generateDirectClickURL returned null for platform: ${key}`);
+      }
+    });
+
+    // 한 번에 state 업데이트 → 각 <a> 태그의 href에 반영됨
+    setCtaLinks(links);
+  }, []); // 마운트 시 1회 실행
 
   const menuItems = [
     { id: '1주년 페스티벌', label: '감사의 마음을 모아\n1주년 페스티벌', active: true },
@@ -84,8 +240,12 @@ export default function App() {
 
           {/* CTA Buttons */}
           <div className="p-4 space-y-2 bg-gray-50 border-t border-gray-100">
-            <button 
-              onClick={() => handleDownload('App Store')}
+            <a
+              href={ctaLinks.ios ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              onMouseEnter={() => ctaLinks.ios && setHoveredCta({ label: CTA_LABELS.ios, url: ctaLinks.ios })}
+              onMouseLeave={() => setHoveredCta(null)}
               className="w-full bg-black text-white rounded-md flex items-center px-3 py-2 gap-3 hover:bg-gray-800 transition-all active:scale-95"
             >
               <Apple size={20} />
@@ -93,10 +253,14 @@ export default function App() {
                 <div className="text-[8px] leading-none opacity-80">App Store에서</div>
                 <div className="text-[11px] font-bold">다운로드 하기</div>
               </div>
-            </button>
+            </a>
 
-            <button 
-              onClick={() => handleDownload('Google Play')}
+            <a
+              href={ctaLinks.android ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              onMouseEnter={() => ctaLinks.android && setHoveredCta({ label: CTA_LABELS.android, url: ctaLinks.android })}
+              onMouseLeave={() => setHoveredCta(null)}
               className="w-full bg-black text-white rounded-md flex items-center px-3 py-2 gap-3 hover:bg-gray-800 transition-all active:scale-95"
             >
               <PlayCircle size={20} />
@@ -104,10 +268,14 @@ export default function App() {
                 <div className="text-[8px] leading-none opacity-80">Google Play에서</div>
                 <div className="text-[11px] font-bold">다운로드</div>
               </div>
-            </button>
+            </a>
 
-            <button 
-              onClick={() => handleDownload('Galaxy Store')}
+            <a
+              href={ctaLinks.galaxy ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              onMouseEnter={() => ctaLinks.galaxy && setHoveredCta({ label: CTA_LABELS.galaxy, url: ctaLinks.galaxy })}
+              onMouseLeave={() => setHoveredCta(null)}
               className="w-full bg-black text-white rounded-md flex items-center px-3 py-2 gap-3 hover:bg-gray-800 transition-all active:scale-95 border border-pink-500/30"
             >
               <Star size={20} className="text-pink-500" />
@@ -115,10 +283,14 @@ export default function App() {
                 <div className="text-[8px] leading-none opacity-80">다운로드하기</div>
                 <div className="text-[11px] font-bold italic">Galaxy Store</div>
               </div>
-            </button>
+            </a>
 
-            <button 
-              onClick={() => handleDownload('PC')}
+            <a
+              href={ctaLinks.nativepc ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              onMouseEnter={() => ctaLinks.nativepc && setHoveredCta({ label: CTA_LABELS.nativepc, url: ctaLinks.nativepc })}
+              onMouseLeave={() => setHoveredCta(null)}
               className="w-full bg-black text-white rounded-md flex items-center px-3 py-2 gap-3 hover:bg-gray-800 transition-all active:scale-95"
             >
               <Monitor size={20} />
@@ -126,7 +298,7 @@ export default function App() {
                 <div className="text-[11px] font-bold">PC버전</div>
                 <div className="text-[8px] leading-none opacity-80">다운로드 하기</div>
               </div>
-            </button>
+            </a>
 
             <div className="flex justify-center gap-4 pt-2 mt-2 border-t border-gray-200">
               <Youtube size={18} className="text-gray-400 cursor-pointer hover:text-red-500 transition-colors" />
@@ -138,7 +310,7 @@ export default function App() {
         {/* Main Content Area */}
         <main className="flex-1 relative overflow-hidden bg-gray-200">
           {/* Background Image */}
-          <div 
+          <div
             className="absolute inset-0 bg-cover bg-center transition-transform duration-700"
             style={{ backgroundImage: `url('/mabinogi_bg.png')` }}
           >
@@ -161,7 +333,7 @@ export default function App() {
 
           {/* Center Content */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8 }}
@@ -179,7 +351,7 @@ export default function App() {
               </div>
 
               {/* Play Button */}
-              <motion.button 
+              <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 className="w-24 h-24 bg-purple-500/90 rounded-full flex items-center justify-center border-4 border-white shadow-2xl mb-10 group transition-all"
@@ -188,7 +360,7 @@ export default function App() {
               </motion.button>
 
               {/* Main CTA */}
-              <motion.button 
+              <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className="bg-[#a855f7] hover:bg-[#9333ea] text-white text-2xl font-black px-20 py-5 rounded-2xl shadow-[0_10px_25px_-5px_rgba(168,85,247,0.5)] transition-all"
@@ -210,7 +382,7 @@ export default function App() {
           </div>
 
           {/* Bottom Right Banner */}
-          <motion.div 
+          <motion.div
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
@@ -232,6 +404,114 @@ export default function App() {
             </div>
           </motion.div>
         </main>
+
+        {/* ============================================================
+            Impression URL 정보 패널
+            페이지 로드 시 표시, 닫기 버튼으로 숨김
+        ============================================================ */}
+        {showImpression && impressionURL && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 flex items-center justify-center z-[100] pointer-events-none"
+          >
+            <div className="pointer-events-auto w-[680px] max-w-[90vw] bg-gray-950/95 backdrop-blur-md rounded-2xl shadow-2xl border border-emerald-500/40 p-6">
+              {/* 헤더 */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-emerald-400 font-bold text-base tracking-wide">IMPRESSION FIRED</span>
+                </div>
+                <button
+                  onClick={() => setShowImpression(false)}
+                  className="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* URL 전체 표시 */}
+              <div className="bg-black/50 rounded-xl p-4 border border-gray-700">
+                <div className="text-[12px] text-gray-500 font-mono mb-2 uppercase tracking-widest">Impression URL</div>
+                <p className="text-emerald-300 font-mono text-[13px] leading-relaxed break-all">
+                  {impressionURL}
+                </p>
+              </div>
+
+              {/* 파라미터 파싱 표시 (af_js_web, af_ss_ver 제외) */}
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {(() => {
+                  try {
+                    const urlObj = new URL(impressionURL);
+                    const EXCLUDE = new Set(['af_js_web', 'af_ss_ver']);
+                    const params = Array.from(urlObj.searchParams.entries()).filter(([k]) => !EXCLUDE.has(k));
+                    return params.map(([k, v]) => (
+                      <div key={k} className="flex gap-2 bg-white/5 rounded-lg px-3 py-2 text-[13px]">
+                        <span className="text-gray-400 font-mono shrink-0">{k}</span>
+                        <span className="text-white font-mono truncate">{v}</span>
+                      </div>
+                    ));
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ============================================================
+            CTA 버튼 호버 패널
+            마우스 오버 시 표시, 오버 종료 시 사라짐
+        ============================================================ */}
+        {hoveredCta && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 flex items-center justify-center z-[110] pointer-events-none"
+          >
+            <div className="w-[680px] max-w-[90vw] bg-gray-950/95 backdrop-blur-md rounded-2xl shadow-2xl border border-blue-500/40 p-6">
+              {/* 헤더 */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+                <span className="text-blue-400 font-bold text-base tracking-wide">
+                  CLICK URL &nbsp;·&nbsp; {hoveredCta.label}
+                </span>
+              </div>
+
+              {/* URL 전체 표시 */}
+              <div className="bg-black/50 rounded-xl p-4 border border-gray-700">
+                <div className="text-[12px] text-gray-500 font-mono mb-2 uppercase tracking-widest">Direct Click URL</div>
+                <p className="text-blue-300 font-mono text-[13px] leading-relaxed break-all">
+                  {hoveredCta.url}
+                </p>
+              </div>
+
+              {/* 파라미터 파싱 표시 (af_js_web, af_ss_ver 제외) */}
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {(() => {
+                  try {
+                    const urlObj = new URL(hoveredCta.url);
+                    const EXCLUDE = new Set(['af_js_web', 'af_ss_ver']);
+                    const params = Array.from(urlObj.searchParams.entries()).filter(([k]) => !EXCLUDE.has(k));
+                    return params.map(([k, v]) => (
+                      <div key={k} className="flex gap-2 bg-white/5 rounded-lg px-3 py-2 text-[13px]">
+                        <span className="text-gray-400 font-mono shrink-0">{k}</span>
+                        <span className="text-white font-mono truncate">{decodeURIComponent(v)}</span>
+                      </div>
+                    ));
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Close button at top left of content area */}
         <button className="absolute top-2 left-[268px] w-8 h-8 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center transition-colors z-50">
