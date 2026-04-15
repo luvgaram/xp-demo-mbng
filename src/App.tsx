@@ -6,11 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, Home, Youtube, MessageCircle, Share2, X, Play, Monitor, Apple, PlayCircle, Star } from 'lucide-react';
 import { motion } from 'motion/react';
-import mabinogiBg from '/public/mabinogi_bg.png';
 
 // ---------------------------------------------------------------
-// window.AF_SMART_SCRIPT 타입 선언
-// CDN(index.html)에서 로드된 Smart Script 라이브러리를 TypeScript에서 사용하기 위함
+// Type declaration for window.AF_SMART_SCRIPT
+// Required to use the Smart Script library loaded via CDN in index.html
 // ---------------------------------------------------------------
 declare global {
   interface Window {
@@ -32,7 +31,7 @@ declare global {
 }
 
 // ---------------------------------------------------------------
-// Smart Script 설정값
+// Smart Script configuration
 // ---------------------------------------------------------------
 const ONE_LINK_URL = 'https://nx-mbng-demo.onelink.me/JawM';
 
@@ -48,7 +47,7 @@ const PLATFORMS = {
     redirectURL: 'https://play.google.com/store/apps/details?id=com.nexon.devcat.mm',
   },
   galaxy: {
-    platformName: 'android', // Galaxy Store도 android platformName 사용
+    platformName: 'android', // Galaxy Store also uses android as platformName
     appid: 'com.xptest.mbng.galaxy',
     redirectURL:
       'https://apps.samsung.com/appquery/appDetail.as?appId=com.nexon.devcat.mmgalaxy',
@@ -62,7 +61,7 @@ const PLATFORMS = {
 
 type PlatformKey = keyof typeof PLATFORMS;
 
-// CTA 버튼 라벨 정의
+// CTA button label definitions
 const CTA_LABELS: Record<PlatformKey, string> = {
   ios:      'App Store',
   android:  'Google Play',
@@ -74,34 +73,35 @@ export default function App() {
   const [activeMenu, setActiveMenu] = useState('1주년 페스티벌');
   const [ctaLinks, setCtaLinks] = useState<Partial<Record<PlatformKey, string>>>({});
 
-  // Impression 패널
+  // Impression debug panel
   const [impressionURL, setImpressionURL] = useState<string | null>(null);
   const [showImpression, setShowImpression] = useState(false);
 
-  // CTA 호버 패널
+  // CTA hover panel
   const [hoveredCta, setHoveredCta] = useState<{ label: string; url: string } | null>(null);
 
   useEffect(() => {
-    // window.AF_SMART_SCRIPT가 로드되었는지 확인
+    // Verify window.AF_SMART_SCRIPT is available
     if (!window.AF_SMART_SCRIPT) {
-      console.error('[SmartScript] window.AF_SMART_SCRIPT is not available. index.html의 CDN 스크립트 로드를 확인하세요.');
+      console.error('[SmartScript] window.AF_SMART_SCRIPT is not available. Check the CDN script tag in index.html.');
       return;
     }
 
     // ---------------------------------------------------------------
-    // Attribution 파라미터 정의
-    // 인입 URL의 UTM 파라미터를 읽거나, 없으면 defaultValue 사용
+    // Attribution parameter definitions
+    // Reads UTM parameters from the incoming URL, falls back to defaultValue
     // ---------------------------------------------------------------
     const afParameters: Record<string, unknown> = {
       mediaSource:      { keys: ['utm_source'],                        defaultValue: 'game_media_source' },
       campaign:         { keys: ['utm_campaign', 'campaign_name'],     defaultValue: 'game_landing_page' },
+      campaignId:       { keys: ['utm_medium'] },
       channel:          { keys: ['inchnl'] },
       ad:               { keys: ['utm_content', 'ad_name'],            defaultValue: 'game_ad_name' },
       adSet:            { keys: ['utm_term', 'adset_name'],             defaultValue: 'game_adset_name' },
       afSub2:           { keys: ['fbclid'] },
       googleClickIdKey: 'af_sub4',
       afCustom: [
-        // Cross-platform attribution에 필수. Impression 링크에만 포함됨
+        // Required for cross-platform attribution. Included in impression link only.
         { paramKey: 'af_xplatform', keys: [], defaultValue: 'true' },
         { paramKey: 'gclid',  keys: ['gclid'] },
         { paramKey: 'fbclid', keys: ['fbclid'] },
@@ -109,7 +109,7 @@ export default function App() {
     };
 
     // ---------------------------------------------------------------
-    // Step A: Impression 발화 (페이지 로드 시 자동 실행)
+    // Step A: Fire impression (runs automatically on page load)
     // ---------------------------------------------------------------
     const olResult = window.AF_SMART_SCRIPT.generateOneLinkURL({
       oneLinkURL: ONE_LINK_URL,
@@ -117,8 +117,8 @@ export default function App() {
     });
 
     if (olResult) {
-      // fireImpressionsLink() 내부와 동일한 로직으로 실제 impression URL 생성
-      // Smart Script 내부: new URL(clickURL) → hostname을 impressions.onelink.me로 교체
+      // Reconstruct the actual impression URL using the same logic as fireImpressionsLink() internally:
+      // Smart Script: new URL(clickURL) → replace hostname with impressions.onelink.me
       try {
         const impressionUrlObj = new URL(olResult.clickURL);
         impressionUrlObj.hostname = 'impressions.onelink.me';
@@ -127,18 +127,18 @@ export default function App() {
         setImpressionURL(olResult.clickURL);
       }
       setShowImpression(true);
-      // 1000ms setTimeout은 공식 샘플의 임시 버그 픽스
+      // 1000ms setTimeout is a temporary bug fix from the official sample
       setTimeout(() => {
         window.AF_SMART_SCRIPT.fireImpressionsLink();
         console.log('[SmartScript] Impression fired');
       }, 1000);
     } else {
-      console.warn('[SmartScript] generateOneLinkURL returned null. Impression이 발화되지 않았습니다.');
+      console.warn('[SmartScript] generateOneLinkURL returned null. Impression was not fired.');
     }
 
     // ---------------------------------------------------------------
-    // Step B: af_xplatform 제거
-    // Direct Click URL에는 af_xplatform이 불필요하며 포함 시 혼동 유발
+    // Step B: Remove af_xplatform from afParameters
+    // Not needed in Direct Click URLs — including it would cause confusion
     // ---------------------------------------------------------------
     const customParams = afParameters.afCustom as Array<{ paramKey: string }>;
     const xplatformIndex = customParams.findIndex((item) => item.paramKey === 'af_xplatform');
@@ -147,7 +147,7 @@ export default function App() {
     }
 
     // ---------------------------------------------------------------
-    // Step C: 각 플랫폼별 Direct Click URL 생성 및 state 저장
+    // Step C: Generate Direct Click URL for each platform and save to state
     // ---------------------------------------------------------------
     const links: Partial<Record<PlatformKey, string>> = {};
 
@@ -168,9 +168,9 @@ export default function App() {
       }
     });
 
-    // 한 번에 state 업데이트 → 각 <a> 태그의 href에 반영됨
+    // Update state in one call — reflected in each <a> tag's href
     setCtaLinks(links);
-  }, []); // 마운트 시 1회 실행
+  }, []); // Runs once on mount
 
   const menuItems = [
     { id: '1주년 페스티벌', label: '감사의 마음을 모아\n1주년 페스티벌', active: true },
@@ -313,7 +313,7 @@ export default function App() {
           {/* Background Image */}
           <div
             className="absolute inset-0 bg-cover bg-center transition-transform duration-700"
-            style={{ backgroundImage: `url(${mabinogiBg})` }}
+            style={{ backgroundImage: `url('/mabinogi_bg.png')` }}
           >
             {/* Overlay for better readability */}
             <div className="absolute inset-0 bg-black/5"></div>
@@ -407,8 +407,8 @@ export default function App() {
         </main>
 
         {/* ============================================================
-            Impression URL 정보 패널
-            페이지 로드 시 표시, 닫기 버튼으로 숨김
+            Impression URL debug panel
+            Shown on page load, dismissed via close button
         ============================================================ */}
         {showImpression && impressionURL && (
           <motion.div
@@ -419,7 +419,7 @@ export default function App() {
             className="absolute inset-0 flex items-center justify-center z-[100] pointer-events-none"
           >
             <div className="pointer-events-auto w-[680px] max-w-[90vw] bg-gray-950/95 backdrop-blur-md rounded-2xl shadow-2xl border border-emerald-500/40 p-6">
-              {/* 헤더 */}
+              {/* Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -433,7 +433,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* URL 전체 표시 */}
+              {/* Full URL display */}
               <div className="bg-black/50 rounded-xl p-4 border border-gray-700">
                 <div className="text-[12px] text-gray-500 font-mono mb-2 uppercase tracking-widest">Impression URL</div>
                 <p className="text-emerald-300 font-mono text-[13px] leading-relaxed break-all">
@@ -441,7 +441,7 @@ export default function App() {
                 </p>
               </div>
 
-              {/* 파라미터 파싱 표시 (af_js_web, af_ss_ver 제외) */}
+              {/* Parsed parameters (af_js_web and af_ss_ver excluded) */}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 {(() => {
                   try {
@@ -464,8 +464,8 @@ export default function App() {
         )}
 
         {/* ============================================================
-            CTA 버튼 호버 패널
-            마우스 오버 시 표시, 오버 종료 시 사라짐
+            CTA button hover panel
+            Shown on mouse enter, hidden on mouse leave
         ============================================================ */}
         {hoveredCta && (
           <motion.div
@@ -476,7 +476,7 @@ export default function App() {
             className="absolute inset-0 flex items-center justify-center z-[110] pointer-events-none"
           >
             <div className="w-[680px] max-w-[90vw] bg-gray-950/95 backdrop-blur-md rounded-2xl shadow-2xl border border-blue-500/40 p-6">
-              {/* 헤더 */}
+              {/* Header */}
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
                 <span className="text-blue-400 font-bold text-base tracking-wide">
@@ -484,7 +484,7 @@ export default function App() {
                 </span>
               </div>
 
-              {/* URL 전체 표시 */}
+              {/* Full URL display */}
               <div className="bg-black/50 rounded-xl p-4 border border-gray-700">
                 <div className="text-[12px] text-gray-500 font-mono mb-2 uppercase tracking-widest">Direct Click URL</div>
                 <p className="text-blue-300 font-mono text-[13px] leading-relaxed break-all">
@@ -492,7 +492,7 @@ export default function App() {
                 </p>
               </div>
 
-              {/* 파라미터 파싱 표시 (af_js_web, af_ss_ver 제외) */}
+              {/* Parsed parameters (af_js_web and af_ss_ver excluded) */}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 {(() => {
                   try {
